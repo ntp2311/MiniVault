@@ -1,0 +1,1 @@
+# core package: Master Passphrase, init/unlock, DEK (section 0.1)
