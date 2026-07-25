@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.database import SessionLocal, init_db
 from src.exceptions import MiniVaultError, error_response
-from src.routers import auth_router, vault_router
+from src.routers import auth_router, vault_router, transit_router
 
 
 def create_app() -> FastAPI:
@@ -22,19 +22,34 @@ def create_app() -> FastAPI:
     init_db()
 
     @app.exception_handler(MiniVaultError)
-    async def mini_vault_error_handler(request: Request, exc: MiniVaultError) -> JSONResponse:
+    async def mini_vault_error_handler(
+        request: Request, exc: MiniVaultError
+    ) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content=error_response(exc))
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"error": {"code": "VALIDATION_ERROR", "message": "Validation failed."}})
+    async def validation_error_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {"code": "VALIDATION_ERROR", "message": "Validation failed."}
+            },
+        )
 
     @app.exception_handler(SQLAlchemyError)
-    async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
-        return JSONResponse(status_code=500, content={"error": {"code": "DATABASE_ERROR", "message": "Database error."}})
+    async def sqlalchemy_error_handler(
+        request: Request, exc: SQLAlchemyError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"code": "DATABASE_ERROR", "message": "Database error."}},
+        )
 
     app.include_router(vault_router)
     app.include_router(auth_router)
+    app.include_router(transit_router)
     return app
 
 
