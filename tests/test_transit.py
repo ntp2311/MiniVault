@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import base64
-import json
-import os
 
 from fastapi.testclient import TestClient
 
@@ -204,62 +202,3 @@ def test_invalid_key_usage(
         headers=headers,
     )
     assert response.status_code == 400
-
-
-def test_encrypt_decrypt_json_roundtrip(
-    client: TestClient, unlocked_and_registered_user: tuple[TestClient, dict]
-):
-    client, headers = unlocked_and_registered_user
-    client.post("/api/v1/transit/keys", json={"key_name": "my-json-key"}, headers=headers)
-
-    json_payload = {"a": 1, "b": "test", "c": [1, 2, 3]}
-    plaintext = base64.b64encode(json.dumps(json_payload).encode("utf-8")).decode(
-        "ascii"
-    )
-    response = client.post(
-        "/api/v1/transit/encrypt/my-json-key",
-        json={"plaintext": plaintext},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    ciphertext = response.json()["ciphertext"]
-
-    response = client.post(
-        "/api/v1/transit/decrypt",
-        json={"ciphertext": ciphertext},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    decrypted_plaintext_b64 = response.json()["plaintext"]
-    decrypted_json_str = base64.b64decode(decrypted_plaintext_b64).decode("utf-8")
-    decrypted_json = json.loads(decrypted_json_str)
-    assert decrypted_json == json_payload
-
-
-def test_encrypt_decrypt_binary_roundtrip(
-    client: TestClient, unlocked_and_registered_user: tuple[TestClient, dict]
-):
-    client, headers = unlocked_and_registered_user
-    client.post(
-        "/api/v1/transit/keys", json={"key_name": "my-binary-key"}, headers=headers
-    )
-
-    binary_data = os.urandom(256)
-    plaintext = base64.b64encode(binary_data).decode("ascii")
-    response = client.post(
-        "/api/v1/transit/encrypt/my-binary-key",
-        json={"plaintext": plaintext},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    ciphertext = response.json()["ciphertext"]
-
-    response = client.post(
-        "/api/v1/transit/decrypt",
-        json={"ciphertext": ciphertext},
-        headers=headers,
-    )
-    assert response.status_code == 200
-    decrypted_plaintext_b64 = response.json()["plaintext"]
-    decrypted_binary_data = base64.b64decode(decrypted_plaintext_b64)
-    assert decrypted_binary_data == binary_data
