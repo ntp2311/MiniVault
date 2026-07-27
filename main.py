@@ -9,6 +9,8 @@ from src.database import SessionLocal, init_db
 from src.exceptions import MiniVaultError, error_response
 from src.routers import auth_router, vault_router
 
+# BƯỚC 1: Thêm dòng import này để lấy router từ file kv.py
+from src.routers.kv import router as kv_router 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Mini Vault", version="0.1.0")
@@ -35,6 +37,10 @@ def create_app() -> FastAPI:
 
     app.include_router(vault_router)
     app.include_router(auth_router)
+    
+    # BƯỚC 2: Thêm dòng này để cắm thẻ kv vào hệ thống
+    app.include_router(kv_router)
+    
     return app
 
 
