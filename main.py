@@ -14,10 +14,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Mini Vault", version="0.1.0")
     from src.database import Base, get_engine
 
-    global engine
     engine = get_engine()
     SessionLocal.configure(bind=engine)
-    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     init_db()
 
