@@ -3,3 +3,5 @@
 2026-07-27 11:20:21,368 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
 2026-07-27 11:31:37,096 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
 2026-07-27 11:37:19,178 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
+2026-07-27 22:45:01,144 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
+2026-07-27 22:45:50,150 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'

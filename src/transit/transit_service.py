@@ -3,19 +3,17 @@ from __future__ import annotations
 import base64
 import secrets
 
-from sqlalchemy.orm import Session
-
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa, utils
+from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa, utils
 from cryptography.hazmat.primitives.serialization import (
-    load_pem_private_key,
-    load_pem_public_key,
     Encoding,
     NoEncryption,
     PrivateFormat,
     PublicFormat,
+    load_pem_private_key,
+    load_pem_public_key,
 )
-
+from sqlalchemy.orm import Session
 
 from src.core.crypto import decrypt_bytes, encrypt_bytes
 from src.core.vault_state import vault_state
@@ -60,11 +58,17 @@ class TransitService:
         return transit_key
 
     def list_keys(self, owner_email: str) -> list[TransitKey]:
+        dek = vault_state.get_dek()
+        if dek is None:
+            raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
         return self.db.query(TransitKey).filter_by(owner_email=owner_email).all()
 
     def revoke_key(self, key_name: str, owner_email: str) -> None:
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
-        if not transit_key or transit_key.owner_email != owner_email:
+        dek = vault_state.get_dek()
+        if dek is None:
+            raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        if not transit_key:
             logger.warning(
                 f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
             )
@@ -77,8 +81,8 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
-        if not transit_key or transit_key.owner_email != owner_email:
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        if not transit_key:
             logger.warning(
                 f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
             )
@@ -116,7 +120,7 @@ class TransitService:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
         try:
-            parts = ciphertext.split(":")
+            parts = ciphertext.split(":", 2)
             if len(parts) != 3 or parts[0] != "vault":
                 raise MiniVaultError(
                     400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format."
@@ -128,12 +132,17 @@ class TransitService:
                 400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format."
             )
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
-        if not transit_key or transit_key.owner_email != owner_email:
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        if not transit_key:
             logger.warning(
                 f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
             )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+
+        if transit_key.key_usage != "ENCRYPT_DECRYPT":
+            raise MiniVaultError(
+                400, "INVALID_KEY_USAGE", "This key cannot be used for decryption."
+            )
 
         try:
             encrypted_key_material_with_nonce = base64.b64decode(
@@ -219,8 +228,8 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
-        if not transit_key or transit_key.owner_email != owner_email:
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        if not transit_key:
             logger.warning(
                 f"Denied sign attempt for key '{key_name}' from user '{owner_email}'"
             )
@@ -263,7 +272,7 @@ class TransitService:
                 if not isinstance(private_key, rsa.RSAPrivateKey):
                     raise MiniVaultError(500, "SIGNING_ERROR", "Key type mismatch.")
                 signature = private_key.sign(
-                    digest, padding.PKCS1v15(), hashes.SHA256()
+                    digest, padding.PKCS1v15(), utils.Prehashed(hashes.SHA256())
                 )
             else:
                 raise MiniVaultError(500, "SIGNING_ERROR", "Unsupported algorithm.")
@@ -288,24 +297,28 @@ class TransitService:
         signature_b64: str,
         passed_algorithm: str,
     ) -> dict:
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
+        dek = vault_state.get_dek()
+        if dek is None:
+            raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        if not transit_key or transit_key.owner_email != owner_email:
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+
+        if not transit_key:
             logger.warning(
                 f"Denied verify attempt for key '{key_name}' from user '{owner_email}'"
             )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+
+        if transit_key.key_usage != "SIGN_VERIFY" or not transit_key.public_key_b64:
+            raise MiniVaultError(
+                400, "INVALID_KEY_USAGE", "This key cannot be used for verification."
+            )
 
         if passed_algorithm != transit_key.signing_algorithm:
             raise MiniVaultError(
                 400,
                 "INVALID_SIGNING_ALGORITHM",
                 "The signing algorithm does not match the key configuration.",
-            )
-
-        if transit_key.key_usage != "SIGN_VERIFY" or not transit_key.public_key_b64:
-            raise MiniVaultError(
-                400, "INVALID_KEY_USAGE", "This key cannot be used for verification."
             )
 
         try:
@@ -345,17 +358,12 @@ class TransitService:
                     raise MiniVaultError(
                         500, "VERIFICATION_ERROR", "Key type mismatch."
                     )
-                if message_type == "RAW":
-                    public_key.verify(
-                        signature, message, padding.PKCS1v15(), hashes.SHA256()
-                    )
-                else:
-                    public_key.verify(
-                        signature,
-                        digest,
-                        padding.PKCS1v15(),
-                        utils.Prehashed(hashes.SHA256()),
-                    )
+                public_key.verify(
+                    signature,
+                    digest,
+                    padding.PKCS1v15(),
+                    utils.Prehashed(hashes.SHA256()),
+                )
                 valid = True
             else:
                 raise MiniVaultError(
