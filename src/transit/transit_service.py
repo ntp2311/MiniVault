@@ -244,27 +244,37 @@ class TransitService:
 
         try:
             message = base64.b64decode(message_b64)
-            if message_type == "DIGEST":
-                if len(message) != 32:
-                    raise MiniVaultError(
-                        400, "INVALID_DIGEST_LENGTH", "Digest length must be 32 bytes."
-                    )
-                digest = message
-            else:  # RAW
-                digest = hashes.Hash(hashes.SHA256())
-                digest.update(message)
-                digest = digest.finalize()
 
             if transit_key.signing_algorithm == "ED25519":
                 if not isinstance(private_key, ed25519.Ed25519PrivateKey):
                     raise MiniVaultError(500, "SIGNING_ERROR", "Key type mismatch.")
-                signature = private_key.sign(digest)
+                if message_type != "RAW":
+                    raise MiniVaultError(
+                        400,
+                        "INVALID_MESSAGE_TYPE",
+                        "ED25519 keys only support RAW message type.",
+                    )
+                signature = private_key.sign(message)
+
             elif transit_key.signing_algorithm == "RSA_2048":
                 if not isinstance(private_key, rsa.RSAPrivateKey):
                     raise MiniVaultError(500, "SIGNING_ERROR", "Key type mismatch.")
-                signature = private_key.sign(
-                    digest, padding.PKCS1v15(), hashes.SHA256()
-                )
+
+                if message_type == "RAW":
+                    signature = private_key.sign(
+                        message, padding.PKCS1v15(), hashes.SHA256()
+                    )
+                else:  # DIGEST
+                    if len(message) != 32:
+                        raise MiniVaultError(
+                            400,
+                            "INVALID_DIGEST_LENGTH",
+                            "Digest length must be 32 bytes for SHA-256.",
+                        )
+                    digest = message
+                    signature = private_key.sign(
+                        digest, padding.PKCS1v15(), utils.Prehashed(hashes.SHA256())
+                    )
             else:
                 raise MiniVaultError(500, "SIGNING_ERROR", "Unsupported algorithm.")
 
@@ -320,25 +330,18 @@ class TransitService:
             message = base64.b64decode(message_b64)
             signature = base64.b64decode(signature_b64)
 
-            if message_type == "DIGEST":
-                if len(message) != 32:
-                    return {
-                        "key_name": key_name,
-                        "signature_valid": False,
-                        "signing_algorithm": transit_key.signing_algorithm,
-                    }
-                digest = message
-            else:  # RAW
-                digest = hashes.Hash(hashes.SHA256())
-                digest.update(message)
-                digest = digest.finalize()
-
             if transit_key.signing_algorithm == "ED25519":
                 if not isinstance(public_key, ed25519.Ed25519PublicKey):
                     raise MiniVaultError(
                         500, "VERIFICATION_ERROR", "Key type mismatch."
                     )
-                public_key.verify(signature, digest)
+                if message_type != "RAW":
+                    raise MiniVaultError(
+                        400,
+                        "INVALID_MESSAGE_TYPE",
+                        "ED25519 keys only support RAW message type.",
+                    )
+                public_key.verify(signature, message)
                 valid = True
             elif transit_key.signing_algorithm == "RSA_2048":
                 if not isinstance(public_key, rsa.RSAPublicKey):
@@ -350,6 +353,13 @@ class TransitService:
                         signature, message, padding.PKCS1v15(), hashes.SHA256()
                     )
                 else:
+                    if len(message) != 32:
+                        return {
+                            "key_name": key_name,
+                            "signature_valid": False,
+                            "signing_algorithm": transit_key.signing_algorithm,
+                        }
+                    digest = message
                     public_key.verify(
                         signature,
                         digest,
