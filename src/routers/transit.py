@@ -49,9 +49,12 @@ def list_keys(
     try:
         transit_service = TransitService(db)
         keys = transit_service.list_keys(current_user.email)
-        return ListKeysResponse(keys=[KeyResponse(key_name=k.key_name, key_usage=k.key_usage) for k in keys])
+        return ListKeysResponse(
+            keys=[KeyResponse(key_name=k.key_name, key_usage=k.key_usage) for k in keys]
+        )
     except MiniVaultError as exc:
         raise exc
+
 
 @router.delete("/keys/{key_name}", status_code=204)
 def revoke_key(
@@ -76,7 +79,9 @@ def encrypt(
 ) -> EncryptResponse:
     try:
         transit_service = TransitService(db)
-        ciphertext = transit_service.encrypt(key_name, current_user.email, payload.plaintext)
+        ciphertext = transit_service.encrypt(
+            key_name, current_user.email, payload.plaintext
+        )
         return EncryptResponse(ciphertext=ciphertext)
     except MiniVaultError as exc:
         raise exc
@@ -104,12 +109,15 @@ def create_signing_key(
 ) -> KeyResponse:
     try:
         transit_service = TransitService(db)
-        key = transit_service.create_signing_key(payload.key_name, current_user.email, payload.signing_algorithm)
+        key = transit_service.create_signing_key(
+            payload.key_name, current_user.email, payload.signing_algorithm
+        )
         return KeyResponse(key_name=key.key_name, key_usage=key.key_usage)
     except MiniVaultError as exc:
         raise exc
 
 
+# In your router file
 @router.post("/sign/{key_name}", response_model=SignResponse)
 def sign(
     key_name: str,
@@ -119,8 +127,13 @@ def sign(
 ) -> SignResponse:
     try:
         transit_service = TransitService(db)
-        signature = transit_service.sign(key_name, current_user.email, payload.message, payload.message_type)
-        return SignResponse(signature=signature)
+
+        result = transit_service.sign(
+            key_name, current_user.email, payload.message, payload.message_type
+        )
+
+        return SignResponse(**result)
+
     except MiniVaultError as exc:
         raise exc
 
@@ -135,7 +148,12 @@ def verify(
     try:
         transit_service = TransitService(db)
         result = transit_service.verify(
-            key_name, current_user.email, payload.message, payload.message_type, payload.signature
+            key_name=key_name,
+            owner_email=current_user.email,
+            message_b64=payload.message,
+            message_type=payload.message_type,
+            signature_b64=payload.signature,
+            passed_algorithm=payload.signing_algorithm,
         )
         return VerifyResponse(**result)
     except MiniVaultError as exc:

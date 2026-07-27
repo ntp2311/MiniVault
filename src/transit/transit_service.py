@@ -6,7 +6,7 @@ import secrets
 from sqlalchemy.orm import Session
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa, utils
 from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
     load_pem_public_key,
@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import (
     PrivateFormat,
     PublicFormat,
 )
+
 
 from src.core.crypto import decrypt_bytes, encrypt_bytes
 from src.core.vault_state import vault_state
@@ -32,9 +33,15 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        existing_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        existing_key = (
+            self.db.query(TransitKey)
+            .filter_by(key_name=key_name, owner_email=owner_email)
+            .first()
+        )
         if existing_key:
-            raise MiniVaultError(409, "KEY_ALREADY_EXISTS", f"Key '{key_name}' already exists.")
+            raise MiniVaultError(
+                409, "KEY_ALREADY_EXISTS", f"Key '{key_name}' already exists."
+            )
 
         new_key_material = secrets.token_bytes(32)
         nonce = secrets.token_bytes(12)
@@ -44,7 +51,9 @@ class TransitService:
             key_name=key_name,
             owner_email=owner_email,
             key_usage="ENCRYPT_DECRYPT",
-            encrypted_key_material=base64.b64encode(nonce + encrypted_key_material).decode("ascii"),
+            encrypted_key_material=base64.b64encode(
+                nonce + encrypted_key_material
+            ).decode("ascii"),
         )
         self.db.add(transit_key)
         self.db.commit()
@@ -56,7 +65,9 @@ class TransitService:
     def revoke_key(self, key_name: str, owner_email: str) -> None:
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
         if not transit_key or transit_key.owner_email != owner_email:
-            logger.warning(f"Denied access attempt for key '{key_name}' from user '{owner_email}'")
+            logger.warning(
+                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
+            )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
         self.db.delete(transit_key)
         self.db.commit()
@@ -68,19 +79,27 @@ class TransitService:
 
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
         if not transit_key or transit_key.owner_email != owner_email:
-            logger.warning(f"Denied access attempt for key '{key_name}' from user '{owner_email}'")
+            logger.warning(
+                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
+            )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
         if transit_key.key_usage != "ENCRYPT_DECRYPT":
-            raise MiniVaultError(400, "INVALID_KEY_USAGE", "This key cannot be used for encryption.")
+            raise MiniVaultError(
+                400, "INVALID_KEY_USAGE", "This key cannot be used for encryption."
+            )
 
         try:
-            encrypted_key_material_with_nonce = base64.b64decode(transit_key.encrypted_key_material)
+            encrypted_key_material_with_nonce = base64.b64decode(
+                transit_key.encrypted_key_material
+            )
             key_nonce = encrypted_key_material_with_nonce[:12]
             encrypted_key_material = encrypted_key_material_with_nonce[12:]
             key_material = decrypt_bytes(encrypted_key_material, dek, key_nonce)
         except Exception:
-            raise MiniVaultError(500, "ENCRYPTION_ERROR", "Could not decrypt key material.")
+            raise MiniVaultError(
+                500, "ENCRYPTION_ERROR", "Could not decrypt key material."
+            )
 
         try:
             plaintext = base64.b64decode(plaintext_b64)
@@ -99,24 +118,34 @@ class TransitService:
         try:
             parts = ciphertext.split(":")
             if len(parts) != 3 or parts[0] != "vault":
-                raise MiniVaultError(400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format.")
+                raise MiniVaultError(
+                    400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format."
+                )
             key_name = parts[1]
             encrypted_data_with_nonce_b64 = parts[2]
         except Exception:
-            raise MiniVaultError(400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format.")
+            raise MiniVaultError(
+                400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format."
+            )
 
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
         if not transit_key or transit_key.owner_email != owner_email:
-            logger.warning(f"Denied access attempt for key '{key_name}' from user '{owner_email}'")
+            logger.warning(
+                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
+            )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
         try:
-            encrypted_key_material_with_nonce = base64.b64decode(transit_key.encrypted_key_material)
+            encrypted_key_material_with_nonce = base64.b64decode(
+                transit_key.encrypted_key_material
+            )
             key_nonce = encrypted_key_material_with_nonce[:12]
             encrypted_key_material = encrypted_key_material_with_nonce[12:]
             key_material = decrypt_bytes(encrypted_key_material, dek, key_nonce)
         except Exception:
-            raise MiniVaultError(500, "DECRYPTION_ERROR", "Could not decrypt key material.")
+            raise MiniVaultError(
+                500, "DECRYPTION_ERROR", "Could not decrypt key material."
+            )
 
         try:
             encrypted_data_with_nonce = base64.b64decode(encrypted_data_with_nonce_b64)
@@ -125,26 +154,42 @@ class TransitService:
             plaintext = decrypt_bytes(encrypted_data, key_material, data_nonce)
             return base64.b64encode(plaintext).decode("ascii")
         except Exception:
-            raise MiniVaultError(400, "DECRYPTION_FAILED", "Could not decrypt data. Ciphertext may be tampered.")
+            raise MiniVaultError(
+                400,
+                "DECRYPTION_FAILED",
+                "Could not decrypt data. Ciphertext may be tampered.",
+            )
 
-    def create_signing_key(self, key_name: str, owner_email: str, signing_algorithm: str) -> TransitKey:
+    def create_signing_key(
+        self, key_name: str, owner_email: str, signing_algorithm: str
+    ) -> TransitKey:
         dek = vault_state.get_dek()
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        existing_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        existing_key = (
+            self.db.query(TransitKey)
+            .filter_by(key_name=key_name, owner_email=owner_email)
+            .first()
+        )
         if existing_key:
-            raise MiniVaultError(409, "KEY_ALREADY_EXISTS", f"Key '{key_name}' already exists.")
+            raise MiniVaultError(
+                409, "KEY_ALREADY_EXISTS", f"Key '{key_name}' already exists."
+            )
 
         if signing_algorithm == "ED25519":
             private_key = ed25519.Ed25519PrivateKey.generate()
         elif signing_algorithm == "RSA_2048":
             private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         else:
-            raise MiniVaultError(400, "UNSUPPORTED_ALGORITHM", "Unsupported signing algorithm.")
+            raise MiniVaultError(
+                400, "UNSUPPORTED_ALGORITHM", "Unsupported signing algorithm."
+            )
 
         private_key_bytes = private_key.private_bytes(
-            encoding=Encoding.PEM, format=PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()
+            encoding=Encoding.PEM,
+            format=PrivateFormat.PKCS8,
+            encryption_algorithm=NoEncryption(),
         )
         public_key_bytes = private_key.public_key().public_bytes(
             encoding=Encoding.PEM, format=PublicFormat.SubjectPublicKeyInfo
@@ -157,7 +202,9 @@ class TransitService:
             key_name=key_name,
             owner_email=owner_email,
             key_usage="SIGN_VERIFY",
-            encrypted_key_material=base64.b64encode(nonce + encrypted_private_key).decode("ascii"),
+            encrypted_key_material=base64.b64encode(
+                nonce + encrypted_private_key
+            ).decode("ascii"),
             signing_algorithm=signing_algorithm,
             public_key_b64=base64.b64encode(public_key_bytes).decode("ascii"),
         )
@@ -165,21 +212,29 @@ class TransitService:
         self.db.commit()
         return transit_key
 
-    def sign(self, key_name: str, owner_email: str, message_b64: str, message_type: str) -> str:
+    def sign(
+        self, key_name: str, owner_email: str, message_b64: str, message_type: str
+    ) -> dict:
         dek = vault_state.get_dek()
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
         if not transit_key or transit_key.owner_email != owner_email:
-            logger.warning(f"Denied sign attempt for key '{key_name}' from user '{owner_email}'")
+            logger.warning(
+                f"Denied sign attempt for key '{key_name}' from user '{owner_email}'"
+            )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
         if transit_key.key_usage != "SIGN_VERIFY":
-            raise MiniVaultError(400, "INVALID_KEY_USAGE", "This key cannot be used for signing.")
+            raise MiniVaultError(
+                400, "INVALID_KEY_USAGE", "This key cannot be used for signing."
+            )
 
         try:
-            encrypted_private_key_with_nonce = base64.b64decode(transit_key.encrypted_key_material)
+            encrypted_private_key_with_nonce = base64.b64decode(
+                transit_key.encrypted_key_material
+            )
             key_nonce = encrypted_private_key_with_nonce[:12]
             encrypted_private_key = encrypted_private_key_with_nonce[12:]
             private_key_bytes = decrypt_bytes(encrypted_private_key, dek, key_nonce)
@@ -190,8 +245,12 @@ class TransitService:
         try:
             message = base64.b64decode(message_b64)
             if message_type == "DIGEST":
+                if len(message) != 32:
+                    raise MiniVaultError(
+                        400, "INVALID_DIGEST_LENGTH", "Digest length must be 32 bytes."
+                    )
                 digest = message
-            else: # RAW
+            else:  # RAW
                 digest = hashes.Hash(hashes.SHA256())
                 digest.update(message)
                 digest = digest.finalize()
@@ -203,62 +262,111 @@ class TransitService:
             elif transit_key.signing_algorithm == "RSA_2048":
                 if not isinstance(private_key, rsa.RSAPrivateKey):
                     raise MiniVaultError(500, "SIGNING_ERROR", "Key type mismatch.")
-                signature = private_key.sign(digest, padding.PKCS1v15(), hashes.SHA256())
+                signature = private_key.sign(
+                    digest, padding.PKCS1v15(), hashes.SHA256()
+                )
             else:
                 raise MiniVaultError(500, "SIGNING_ERROR", "Unsupported algorithm.")
 
-            return base64.b64encode(signature).decode("ascii")
+            signature_b64 = base64.b64encode(signature).decode("ascii")
+
+            return {
+                "signature": signature_b64,
+                "key_name": key_name,
+                "signing_algorithm": transit_key.signing_algorithm,
+            }
+
         except Exception as e:
             raise MiniVaultError(500, "SIGNING_ERROR", f"Could not sign message: {e}")
 
     def verify(
-        self, key_name: str, owner_email: str, message_b64: str, message_type: str, signature_b64: str
+        self,
+        key_name: str,
+        owner_email: str,
+        message_b64: str,
+        message_type: str,
+        signature_b64: str,
+        passed_algorithm: str,
     ) -> dict:
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
+
         if not transit_key or transit_key.owner_email != owner_email:
-            logger.warning(f"Denied verify attempt for key '{key_name}' from user '{owner_email}'")
+            logger.warning(
+                f"Denied verify attempt for key '{key_name}' from user '{owner_email}'"
+            )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
+        if passed_algorithm != transit_key.signing_algorithm:
+            raise MiniVaultError(
+                400,
+                "INVALID_SIGNING_ALGORITHM",
+                "The signing algorithm does not match the key configuration.",
+            )
+
         if transit_key.key_usage != "SIGN_VERIFY" or not transit_key.public_key_b64:
-            raise MiniVaultError(400, "INVALID_KEY_USAGE", "This key cannot be used for verification.")
+            raise MiniVaultError(
+                400, "INVALID_KEY_USAGE", "This key cannot be used for verification."
+            )
 
         try:
             public_key_bytes = base64.b64decode(transit_key.public_key_b64)
             public_key = load_pem_public_key(public_key_bytes)
         except Exception:
-            raise MiniVaultError(500, "VERIFICATION_ERROR", "Could not load public key.")
+            raise MiniVaultError(
+                500, "VERIFICATION_ERROR", "Could not load public key."
+            )
 
         try:
             message = base64.b64decode(message_b64)
             signature = base64.b64decode(signature_b64)
+
             if message_type == "DIGEST":
+                if len(message) != 32:
+                    return {
+                        "key_name": key_name,
+                        "signature_valid": False,
+                        "signing_algorithm": transit_key.signing_algorithm,
+                    }
                 digest = message
-            else: # RAW
+            else:  # RAW
                 digest = hashes.Hash(hashes.SHA256())
                 digest.update(message)
                 digest = digest.finalize()
-            
+
             if transit_key.signing_algorithm == "ED25519":
                 if not isinstance(public_key, ed25519.Ed25519PublicKey):
-                    raise MiniVaultError(500, "VERIFICATION_ERROR", "Key type mismatch.")
+                    raise MiniVaultError(
+                        500, "VERIFICATION_ERROR", "Key type mismatch."
+                    )
                 public_key.verify(signature, digest)
                 valid = True
             elif transit_key.signing_algorithm == "RSA_2048":
                 if not isinstance(public_key, rsa.RSAPublicKey):
-                    raise MiniVaultError(500, "VERIFICATION_ERROR", "Key type mismatch.")
-                public_key.verify(signature, digest, padding.PKCS1v15(), hashes.SHA256())
+                    raise MiniVaultError(
+                        500, "VERIFICATION_ERROR", "Key type mismatch."
+                    )
+                if message_type == "RAW":
+                    public_key.verify(
+                        signature, message, padding.PKCS1v15(), hashes.SHA256()
+                    )
+                else:
+                    public_key.verify(
+                        signature,
+                        digest,
+                        padding.PKCS1v15(),
+                        utils.Prehashed(hashes.SHA256()),
+                    )
                 valid = True
             else:
-                raise MiniVaultError(500, "VERIFICATION_ERROR", "Unsupported algorithm.")
+                raise MiniVaultError(
+                    500, "VERIFICATION_ERROR", "Unsupported algorithm."
+                )
 
         except Exception:
             valid = False
-        
+
         return {
             "key_name": key_name,
             "signature_valid": valid,
             "signing_algorithm": transit_key.signing_algorithm,
         }
-
-
-
