@@ -17,7 +17,7 @@ def create_app() -> FastAPI:
     engine = get_engine()
     SessionLocal.configure(bind=engine)
     Base.metadata.create_all(bind=engine)
-    init_db()
+    init_db(engine)
 
     @app.exception_handler(MiniVaultError)
     async def mini_vault_error_handler(request: Request, exc: MiniVaultError) -> JSONResponse:

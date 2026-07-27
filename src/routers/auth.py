@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from src.auth.auth_service import AuthService
 from src.auth.dependencies import get_current_user, get_db
-from src.exceptions import MiniVaultError, error_response
+from src.exceptions import MiniVaultError
 from src.models.user import User
-from src.schemas.auth import AuthResponse, LoginRequest, MeResponse, RegisterRequest
+from src.schemas.auth import AuthResponse, LoginRequest, LoginMFARequest, MFAConfirmRequest, MFASetupResponse, MeResponse, RegisterRequest
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -28,6 +28,44 @@ def login(payload: LoginRequest, db: Annotated[Session, Depends(get_db)]) -> Aut
     try:
         auth_service = AuthService(db)
         result = auth_service.login(payload.email, payload.passphrase)
+        return AuthResponse(**result)
+    except MiniVaultError as exc:
+        raise exc
+
+
+@router.post("/mfa/setup", response_model=MFASetupResponse)
+def setup_mfa(current_user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> MFASetupResponse:
+    try:
+        auth_service = AuthService(db)
+        result = auth_service.setup_mfa(current_user)
+        return MFASetupResponse(**result)
+    except MiniVaultError as exc:
+        raise exc
+
+
+@router.post("/mfa/confirm")
+def confirm_mfa(payload: MFAConfirmRequest, current_user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict[str, str]:
+    try:
+        auth_service = AuthService(db)
+        return auth_service.confirm_mfa(current_user, payload.otp_code)
+    except MiniVaultError as exc:
+        raise exc
+
+
+@router.post("/login/mfa", response_model=AuthResponse)
+def login_mfa(payload: LoginMFARequest, db: Annotated[Session, Depends(get_db)]) -> AuthResponse:
+    try:
+        auth_service = AuthService(db)
+        mfa_service = auth_service.session_service
+        from src.auth.mfa_service import MFAService
+
+        mfa = MFAService(db)
+        user_id = mfa.verify_login_challenge(payload.mfa_challenge_token)
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            raise MiniVaultError(401, "INVALID_MFA_CHALLENGE", "Invalid MFA challenge token.")
+
+        result = auth_service.complete_login_mfa(user, payload.otp_code, payload.mfa_challenge_token)
         return AuthResponse(**result)
     except MiniVaultError as exc:
         raise exc

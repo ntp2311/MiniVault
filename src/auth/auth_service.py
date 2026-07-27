@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from src.auth.mfa_service import MFAService
 from src.auth.password_service import hash_password, normalize_email, verify_password, validate_password_strength
 from src.auth.session_service import SessionService
 from src.exceptions import MiniVaultError
@@ -67,5 +68,25 @@ class AuthService:
         user.failed_attempts = 0
         user.locked_until = None
         self.db.commit()
+
+        if user.mfa_enabled:
+            mfa_service = MFAService(self.db)
+            challenge_token = mfa_service.create_login_challenge(user)
+            return {"mfa_required": True, "mfa_challenge_token": challenge_token, "expires_in": 300}
+
+        token, _ = self.session_service.create_session(user)
+        return {"access_token": token, "token_type": "bearer", "expires_in": 1800}
+
+    def setup_mfa(self, user: User) -> dict[str, Any]:
+        mfa_service = MFAService(self.db)
+        return mfa_service.setup_mfa(user)
+
+    def confirm_mfa(self, user: User, otp_code: str) -> dict[str, Any]:
+        mfa_service = MFAService(self.db)
+        return mfa_service.confirm_mfa(user, otp_code)
+
+    def complete_login_mfa(self, user: User, otp_code: str, challenge_token: str) -> dict[str, Any]:
+        mfa_service = MFAService(self.db)
+        mfa_service.verify_mfa_login(user, otp_code, challenge_token)
         token, _ = self.session_service.create_session(user)
         return {"access_token": token, "token_type": "bearer", "expires_in": 1800}
