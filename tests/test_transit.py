@@ -185,6 +185,50 @@ def test_cross_user_key_access_denied(
     assert response.status_code == 403
 
 
+def test_granted_user_can_verify_signature(
+    client: TestClient,
+    unlocked_and_registered_user: tuple[TestClient, dict],
+    second_unlocked_user: tuple[TestClient, dict],
+):
+    client, headers_alice = unlocked_and_registered_user
+    _, headers_bob = second_unlocked_user
+
+    client.post(
+        "/api/v1/transit/keys/sign",
+        json={"key_name": "shared-signing-key", "signing_algorithm": "ED25519"},
+        headers=headers_alice,
+    )
+
+    message = base64.b64encode(b"hello world").decode("ascii")
+    sign_response = client.post(
+        "/api/v1/transit/sign/shared-signing-key",
+        json={"message": message, "message_type": "RAW"},
+        headers=headers_alice,
+    )
+    assert sign_response.status_code == 200
+    signature = sign_response.json()["signature"]
+
+    grant_response = client.post(
+        "/api/v1/transit/keys/shared-signing-key/grants",
+        json={"grantee_email": "bob@example.com", "permission": "VERIFY"},
+        headers=headers_alice,
+    )
+    assert grant_response.status_code == 201
+
+    verify_response = client.post(
+        "/api/v1/transit/verify/shared-signing-key",
+        json={
+            "message": message,
+            "message_type": "RAW",
+            "signature": signature,
+            "signing_algorithm": "ED25519",
+        },
+        headers=headers_bob,
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["signature_valid"] is True
+
+
 def test_invalid_key_usage(
     client: TestClient, unlocked_and_registered_user: tuple[TestClient, dict]
 ):

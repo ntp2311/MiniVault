@@ -10,13 +10,16 @@ from src.exceptions import MiniVaultError
 from src.models.user import User
 from src.schemas.transit import (
     CreateKeyRequest,
-    KeyResponse,
-    ListKeysResponse,
-    EncryptRequest,
-    EncryptResponse,
+    CreateSigningKeyRequest,
     DecryptRequest,
     DecryptResponse,
-    CreateSigningKeyRequest,
+    EncryptRequest,
+    EncryptResponse,
+    GrantRequest,
+    GrantResponse,
+    KeyResponse,
+    ListGrantsResponse,
+    ListKeysResponse,
     SignRequest,
     SignResponse,
     VerifyRequest,
@@ -70,6 +73,77 @@ def revoke_key(
         raise exc
 
 
+@router.post("/keys/{key_name}/grants", response_model=GrantResponse, status_code=201)
+@router.post("/keys/{key_name}/grant", response_model=GrantResponse, status_code=201)
+def create_grant(
+    key_name: str,
+    payload: GrantRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> GrantResponse:
+    try:
+        transit_service = TransitService(db)
+        grant = transit_service.create_grant(
+            key_name=key_name,
+            owner_email=current_user.email,
+            grantee_email=payload.grantee_email,
+            permission=payload.permission,
+        )
+        return GrantResponse(
+            key_name=key_name,
+            grantee_email=grant.grantee_email,
+            permission=grant.permission,
+        )
+    except MiniVaultError as exc:
+        raise exc
+
+
+@router.get("/keys/{key_name}/grants", response_model=ListGrantsResponse)
+@router.get("/keys/{key_name}/grant", response_model=ListGrantsResponse)
+def list_grants(
+    key_name: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ListGrantsResponse:
+    try:
+        transit_service = TransitService(db)
+        grants = transit_service.list_grants(key_name=key_name, owner_email=current_user.email)
+        return ListGrantsResponse(
+            grants=[
+                GrantResponse(
+                    key_name=key_name,
+                    grantee_email=grant.grantee_email,
+                    permission=grant.permission,
+                )
+                for grant in grants
+            ]
+        )
+    except MiniVaultError as exc:
+        raise exc
+
+
+@router.delete("/keys/{key_name}/grants/{grantee_email}/{permission}", status_code=204)
+@router.delete("/keys/{key_name}/grant/{grantee_email}/{permission}", status_code=204)
+def revoke_grant(
+    key_name: str,
+    grantee_email: str,
+    permission: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    try:
+        transit_service = TransitService(db)
+        transit_service.revoke_grant(
+            key_name=key_name,
+            owner_email=current_user.email,
+            grantee_email=grantee_email,
+            permission=permission,
+        )
+        return Response(status_code=204)
+    except MiniVaultError as exc:
+        raise exc
+
+
 @router.post("/encrypt/{key_name}", response_model=EncryptResponse)
 def encrypt(
     key_name: str,
@@ -117,7 +191,6 @@ def create_signing_key(
         raise exc
 
 
-# In your router file
 @router.post("/sign/{key_name}", response_model=SignResponse)
 def sign(
     key_name: str,

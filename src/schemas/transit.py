@@ -59,3 +59,18 @@ class VerifyResponse(BaseModel):
     key_name: str
     signature_valid: bool
     signing_algorithm: str
+
+
+class GrantRequest(BaseModel):
+    grantee_email: str = Field(..., min_length=1)
+    permission: str = Field("VERIFY", min_length=1)
+
+
+class GrantResponse(BaseModel):
+    key_name: str
+    grantee_email: str
+    permission: str
+
+
+class ListGrantsResponse(BaseModel):
+    grants: list[GrantResponse]

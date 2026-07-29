@@ -20,11 +20,42 @@ from src.core.vault_state import vault_state
 from src.exceptions import MiniVaultError
 from src.logger import logger
 from src.models.transit_key import TransitKey
+from src.models.transit_key_grant import TransitKeyGrant
 
 
 class TransitService:
     def __init__(self, db: Session):
         self.db = db
+
+    def _get_transit_key_for_access(
+        self, key_name: str, user_email: str, required_permission: str | None = None
+    ) -> TransitKey:
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
+        if not transit_key:
+            logger.warning(f"Denied access attempt for key '{key_name}' from user '{user_email}'")
+            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+
+        if transit_key.owner_email == user_email:
+            return transit_key
+
+        if required_permission is None:
+            logger.warning(f"Denied access attempt for key '{key_name}' from user '{user_email}'")
+            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+
+        has_grant = (
+            self.db.query(TransitKeyGrant)
+            .filter_by(
+                transit_key_id=transit_key.id,
+                grantee_email=user_email,
+                permission=required_permission,
+            )
+            .first()
+        )
+        if has_grant:
+            return transit_key
+
+        logger.warning(f"Denied access attempt for key '{key_name}' from user '{user_email}'")
+        raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
     def create_key(self, key_name: str, owner_email: str) -> TransitKey:
         dek = vault_state.get_dek()
@@ -67,14 +98,61 @@ class TransitService:
         dek = vault_state.get_dek()
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
-        if not transit_key:
-            logger.warning(
-                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
-            )
-            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
         self.db.delete(transit_key)
         self.db.commit()
+
+    def create_grant(
+        self, key_name: str, owner_email: str, grantee_email: str, permission: str
+    ) -> TransitKeyGrant:
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
+        existing_grant = (
+            self.db.query(TransitKeyGrant)
+            .filter_by(
+                transit_key_id=transit_key.id,
+                grantee_email=grantee_email,
+                permission=permission,
+            )
+            .first()
+        )
+        if existing_grant:
+            return existing_grant
+
+        grant = TransitKeyGrant(
+            transit_key_id=transit_key.id,
+            grantee_email=grantee_email,
+            permission=permission,
+        )
+        self.db.add(grant)
+        self.db.commit()
+        self.db.refresh(grant)
+        return grant
+
+    def list_grants(self, key_name: str, owner_email: str) -> list[TransitKeyGrant]:
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
+        return (
+            self.db.query(TransitKeyGrant)
+            .filter_by(transit_key_id=transit_key.id)
+            .order_by(TransitKeyGrant.created_at.asc())
+            .all()
+        )
+
+    def revoke_grant(
+        self, key_name: str, owner_email: str, grantee_email: str, permission: str
+    ) -> None:
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
+        grant = (
+            self.db.query(TransitKeyGrant)
+            .filter_by(
+                transit_key_id=transit_key.id,
+                grantee_email=grantee_email,
+                permission=permission,
+            )
+            .first()
+        )
+        if grant is not None:
+            self.db.delete(grant)
+            self.db.commit()
 
     def encrypt(self, key_name: str, owner_email: str, plaintext_b64: str) -> str:
         dek = vault_state.get_dek()
@@ -228,12 +306,7 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
-        if not transit_key:
-            logger.warning(
-                f"Denied sign attempt for key '{key_name}' from user '{owner_email}'"
-            )
-            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
 
         if transit_key.key_usage != "SIGN_VERIFY":
             raise MiniVaultError(
@@ -301,13 +374,11 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
-
-        if not transit_key:
-            logger.warning(
-                f"Denied verify attempt for key '{key_name}' from user '{owner_email}'"
-            )
-            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+        transit_key = self._get_transit_key_for_access(
+            key_name,
+            owner_email,
+            required_permission="VERIFY",
+        )
 
         if transit_key.key_usage != "SIGN_VERIFY" or not transit_key.public_key_b64:
             raise MiniVaultError(

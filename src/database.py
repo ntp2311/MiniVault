@@ -31,6 +31,12 @@ def get_db() -> Session:
 
 
 def init_db() -> None:
-    from src.models import session, user, vault_metadata  # noqa: F401
+    from src.models import (  # noqa: F401
+        session,
+        transit_key,
+        transit_key_grant,
+        user,
+        vault_metadata,
+    )
 
     Base.metadata.create_all(bind=engine)
