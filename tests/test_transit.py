@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 
 from fastapi.testclient import TestClient
 
@@ -183,6 +184,68 @@ def test_cross_user_key_access_denied(
     )
 
     assert response.status_code == 403
+
+
+def test_encrypt_denied_attempt_is_logged(
+    client: TestClient,
+    unlocked_and_registered_user: tuple[TestClient, dict],
+    second_unlocked_user: tuple[TestClient, dict],
+    caplog,
+):
+    client, headers_alice = unlocked_and_registered_user
+    _, headers_bob = second_unlocked_user
+
+    caplog.set_level(logging.WARNING, logger="minivault")
+
+    client.post(
+        "/api/v1/transit/keys",
+        json={"key_name": "alice-secret-key"},
+        headers=headers_alice,
+    )
+
+    plaintext = base64.b64encode(b"hello").decode("ascii")
+    response = client.post(
+        "/api/v1/transit/encrypt/alice-secret-key",
+        json={"plaintext": plaintext},
+        headers=headers_bob,
+    )
+
+    assert response.status_code == 403
+    assert any(
+        "Denied encrypt access for key 'alice-secret-key' by requester 'bob@example.com'" in message
+        for message in caplog.messages
+    )
+
+
+def test_decrypt_denied_attempt_is_logged(
+    client: TestClient,
+    unlocked_and_registered_user: tuple[TestClient, dict],
+    second_unlocked_user: tuple[TestClient, dict],
+    caplog,
+):
+    client, headers_alice = unlocked_and_registered_user
+    _, headers_bob = second_unlocked_user
+
+    caplog.set_level(logging.WARNING, logger="minivault")
+
+    client.post(
+        "/api/v1/transit/keys",
+        json={"key_name": "alice-secret-key"},
+        headers=headers_alice,
+    )
+
+    ciphertext = "vault:alice-secret-key:SGVsbG8="
+    response = client.post(
+        "/api/v1/transit/decrypt",
+        json={"ciphertext": ciphertext},
+        headers=headers_bob,
+    )
+
+    assert response.status_code == 403
+    assert any(
+        "Denied decrypt access for key 'alice-secret-key' by requester 'bob@example.com'" in message
+        for message in caplog.messages
+    )
 
 
 def test_granted_user_can_verify_signature(

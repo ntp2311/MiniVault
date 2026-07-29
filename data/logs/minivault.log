@@ -7,3 +7,6 @@
 2026-07-27 22:45:50,150 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
 2026-07-29 10:02:15,474 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
 2026-07-29 10:02:31,163 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
+2026-07-29 10:12:07,276 - minivault - WARNING - Denied encrypt access for key 'alice-secret-key' by requester 'bob@example.com'
+2026-07-29 10:12:07,733 - minivault - WARNING - Denied encrypt access for key 'alice-secret-key' by requester 'bob@example.com'
+2026-07-29 10:12:08,199 - minivault - WARNING - Denied decrypt access for key 'alice-secret-key' by requester 'bob@example.com'

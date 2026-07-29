@@ -162,7 +162,9 @@ class TransitService:
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
         if not transit_key:
             logger.warning(
-                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
+                "Denied encrypt access for key '%s' by requester '%s'",
+                key_name,
+                owner_email,
             )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
@@ -213,7 +215,9 @@ class TransitService:
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
         if not transit_key:
             logger.warning(
-                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
+                "Denied decrypt access for key '%s' by requester '%s'",
+                key_name,
+                owner_email,
             )
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
