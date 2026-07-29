@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from sqlalchemy.orm import Session
 
+from src.audit.audit_service import AuditService
 from src.core.crypto import decrypt_bytes, encrypt_bytes
 from src.core.vault_state import vault_state
 from src.exceptions import MiniVaultError
@@ -26,12 +27,50 @@ from src.models.transit_key_grant import TransitKeyGrant
 class TransitService:
     def __init__(self, db: Session):
         self.db = db
+        self.audit_service = AuditService()
+
+    def _record_access_denied(
+        self,
+        actor_email: str,
+        key_name: str,
+        operation: str,
+        action: str | None = None,
+    ) -> None:
+        mapped_action = action
+        if mapped_action is None:
+            if operation.lower() == "verify":
+                mapped_action = "TRANSIT_VERIFY_ACCESS_DENIED"
+            elif operation.lower() == "sign":
+                mapped_action = "TRANSIT_SIGN_ACCESS_DENIED"
+            else:
+                mapped_action = "TRANSIT_KEY_ACCESS_DENIED"
+
+        try:
+            self.audit_service.record(
+                actor_email=actor_email,
+                action=mapped_action,
+                resource_type="TRANSIT_KEY",
+                resource=key_name,
+                result="PERMISSION_DENIED",
+                details={"operation": operation},
+            )
+        except MiniVaultError:
+            logger.error("Unable to write audit log for denied transit operation.")
 
     def _get_transit_key_for_access(
-        self, key_name: str, user_email: str, required_permission: str | None = None
+        self,
+        key_name: str,
+        user_email: str,
+        required_permission: str | None = None,
+        operation: str = "access",
     ) -> TransitKey:
         transit_key = self.db.query(TransitKey).filter_by(key_name=key_name).first()
         if not transit_key:
+            self._record_access_denied(
+                actor_email=user_email,
+                key_name=key_name,
+                operation="access",
+            )
             logger.warning(f"Denied access attempt for key '{key_name}' from user '{user_email}'")
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
@@ -39,6 +78,11 @@ class TransitService:
             return transit_key
 
         if required_permission is None:
+            self._record_access_denied(
+                actor_email=user_email,
+                key_name=key_name,
+                operation="access",
+            )
             logger.warning(f"Denied access attempt for key '{key_name}' from user '{user_email}'")
             raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
@@ -54,6 +98,16 @@ class TransitService:
         if has_grant:
             return transit_key
 
+        self._record_access_denied(
+            actor_email=user_email,
+            key_name=key_name,
+            operation=required_permission,
+            action=(
+                "TRANSIT_VERIFY_ACCESS_DENIED"
+                if required_permission == "VERIFY"
+                else "TRANSIT_KEY_ACCESS_DENIED"
+            ),
+        )
         logger.warning(f"Denied access attempt for key '{key_name}' from user '{user_email}'")
         raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
 
@@ -159,13 +213,7 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
-        if not transit_key:
-            logger.warning(
-                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
-            )
-            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
-
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
         if transit_key.key_usage != "ENCRYPT_DECRYPT":
             raise MiniVaultError(
                 400, "INVALID_KEY_USAGE", "This key cannot be used for encryption."
@@ -210,13 +258,7 @@ class TransitService:
                 400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format."
             )
 
-        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
-        if not transit_key:
-            logger.warning(
-                f"Denied access attempt for key '{key_name}' from user '{owner_email}'"
-            )
-            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
-
+        transit_key = self._get_transit_key_for_access(key_name, owner_email)
         if transit_key.key_usage != "ENCRYPT_DECRYPT":
             raise MiniVaultError(
                 400, "INVALID_KEY_USAGE", "This key cannot be used for decryption."
