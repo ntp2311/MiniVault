@@ -40,7 +40,14 @@ def get_db() -> Session:
 
 
 def init_db(engine_instance: object | None = None) -> None:
-    from src.models import mfa_setup_challenge, session, user, vault_metadata  # noqa: F401
+    from src.models import (  # noqa: F401
+        mfa_setup_challenge,
+        session,
+        transit_key,
+        transit_key_grant,
+        user,
+        vault_metadata,
+    )
 
     target_engine = engine_instance or engine
     Base.metadata.create_all(bind=target_engine)
