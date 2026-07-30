@@ -49,14 +49,11 @@ def create_app() -> FastAPI:
 
     app.include_router(vault_router)
     app.include_router(auth_router)
-<<<<<<< HEAD
     app.include_router(transit_router)
-=======
     
     # BƯỚC 2: Thêm dòng này để cắm thẻ kv vào hệ thống
     app.include_router(kv_router)
     
->>>>>>> origin/Luan
     return app
 
 

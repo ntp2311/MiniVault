@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+from urllib import response
 
 from fastapi.testclient import TestClient
 
@@ -234,6 +235,9 @@ def test_denied_transit_access_is_logged(
             json={"plaintext": base64.b64encode(b"hello").decode("ascii")},
             headers=second_unlocked_user[1],
         )
+
+        print("STATUS:", response.status_code)
+        print("BODY:", response.text)
         assert response.status_code == 403
 
         result = verify_audit_log(audit_file)
