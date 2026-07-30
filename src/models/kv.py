@@ -1,17 +1,20 @@
-from sqlalchemy import Column, String, DateTime
+from sqlalchemy import Column, String, DateTime, Integer
 from sqlalchemy.sql import func
 from src.database import Base
 
 class SecretItem(Base):
     __tablename__ = "secrets"
 
-    # Đường dẫn lưu bí mật (ví dụ: secret/alice@example.com/db)
-    path = Column(String, primary_key=True, index=True)
+    # Thêm ID làm khóa chính để 1 path có thể có nhiều version
+    id = Column(Integer, primary_key=True, index=True)
     
-    # Email của chủ sở hữu để kiểm tra quyền truy cập (Feature 1.2)
+    # Path không còn là khóa chính nữa
+    path = Column(String, index=True, nullable=False)
+    
+    # Thêm cột version
+    version = Column(Integer, nullable=False, default=1)
+    
     owner_email = Column(String, nullable=False, index=True)
-    
-    # Các thành phần mã hóa (Feature 1.1)
     nonce_b64 = Column(String, nullable=False)
     ciphertext_b64 = Column(String, nullable=False)
     tag_b64 = Column(String, nullable=False)
