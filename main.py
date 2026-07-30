@@ -12,11 +12,22 @@ from src.routers import auth_router, vault_router
 # BƯỚC 1: Thêm dòng import này để lấy router từ file kv.py
 from src.routers.kv import router as kv_router 
 import logging
+import os
+# 1. Tạo thư mục 'logs' nếu nó chưa tồn tại (để code không bị lỗi khi mới tải về)
+if not os.path.exists("logs"):
+    os.makedirs("logs")
 
-# Cấu hình log để hiện ra màn hình Terminal
+# 2. Cấu hình hệ thống để viết log vào cả file lẫn Terminal
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    handlers=[
+        # Tính năng mới: Ghi đè vào file văn bản
+        logging.FileHandler("logs/security.log", encoding="utf-8"),
+        
+        # Giữ nguyên tính năng cũ: In ra màn hình Terminal
+        logging.StreamHandler()
+    ]
 )
 
 def create_app() -> FastAPI:
