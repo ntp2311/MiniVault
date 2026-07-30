@@ -1,2 +1,0 @@
-2026-07-30 17:15:01,828 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'
-2026-07-30 17:20:01,624 - minivault - WARNING - Denied access attempt for key 'alice-secret-key' from user 'bob@example.com'

@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environment secrets
+.env
+
+# Runtime databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Runtime logs
+data/logs/*
+!data/logs/.gitkeep
