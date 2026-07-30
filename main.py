@@ -11,6 +11,13 @@ from src.routers import auth_router, vault_router
 
 # BƯỚC 1: Thêm dòng import này để lấy router từ file kv.py
 from src.routers.kv import router as kv_router 
+import logging
+
+# Cấu hình log để hiện ra màn hình Terminal
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+)
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Mini Vault", version="0.1.0")
