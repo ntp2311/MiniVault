@@ -213,7 +213,15 @@ class TransitService:
         if dek is None:
             raise MiniVaultError(400, "VAULT_LOCKED", "Vault is locked.")
 
-        transit_key = self._get_transit_key_for_access(key_name, owner_email)
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        if not transit_key:
+            logger.warning(
+                "Denied encrypt access for key '%s' by requester '%s'",
+                key_name,
+                owner_email,
+            )
+            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+
         if transit_key.key_usage != "ENCRYPT_DECRYPT":
             raise MiniVaultError(
                 400, "INVALID_KEY_USAGE", "This key cannot be used for encryption."
@@ -258,7 +266,15 @@ class TransitService:
                 400, "INVALID_CIPHERTEXT_FORMAT", "Invalid ciphertext format."
             )
 
-        transit_key = self._get_transit_key_for_access(key_name, owner_email)
+        transit_key = self.db.query(TransitKey).filter_by(key_name=key_name, owner_email=owner_email).first()
+        if not transit_key:
+            logger.warning(
+                "Denied decrypt access for key '%s' by requester '%s'",
+                key_name,
+                owner_email,
+            )
+            raise MiniVaultError(403, "PERMISSION_DENIED", "Permission denied.")
+
         if transit_key.key_usage != "ENCRYPT_DECRYPT":
             raise MiniVaultError(
                 400, "INVALID_KEY_USAGE", "This key cannot be used for decryption."

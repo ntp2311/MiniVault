@@ -19,3 +19,12 @@ __pycache__/
 # Runtime logs
 data/logs/*
 !data/logs/.gitkeep
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Runtime logs
+data/logs/*.log
+data/logs/*.backup.jsonl
+logs/*.log
